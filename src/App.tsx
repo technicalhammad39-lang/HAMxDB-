@@ -218,7 +218,7 @@ export default function App() {
           
           <div className="mt-2">
             <p className="text-xs font-mono text-white/40 uppercase tracking-widest">
-              Real Cyber Data Lookup
+              Pakistani SIM Database - Real Cyber Lookup
             </p>
           </div>
         </header>

@@ -16,6 +16,7 @@ import {
 import { MatrixBackground } from './components/MatrixBackground';
 import { TerminalLogs } from './components/TerminalLogs';
 import { ResultCard } from './components/ResultCard';
+import { ErrorBoundary } from './components/ErrorBoundary';
 
 type ThemeColor = 'green' | 'blue';
 
@@ -27,7 +28,7 @@ interface ResultData {
   Address: string;
 }
 
-export default function App() {
+function AppContent() {
   const [theme, setTheme] = useState<ThemeColor>('green');
   const [phoneNumber, setPhoneNumber] = useState('');
   const [isScanning, setIsScanning] = useState(false);
@@ -35,6 +36,7 @@ export default function App() {
   const [results, setResults] = useState<ResultData[]>([]);
   const [scanProgress, setScanProgress] = useState(0);
   const [showWelcome, setShowWelcome] = useState(true);
+  const [isSessionReady, setIsSessionReady] = useState(false);
 
   const color = theme === 'green' ? '#00ff41' : '#00f3ff';
   const glowClass = theme === 'green' ? 'glow-green' : 'glow-blue';
@@ -44,9 +46,32 @@ export default function App() {
     setLogs(prev => [...prev, msg]);
   }, []);
 
+  // Initialize session on mount
+  useEffect(() => {
+    const initSession = async () => {
+      try {
+        const response = await fetch('/api/session');
+        if (response.ok) {
+          setIsSessionReady(true);
+        } else {
+          addLog('CRITICAL: Failed to establish secure session.');
+        }
+      } catch (error) {
+        addLog('CRITICAL: Security gateway unreachable.');
+      }
+    };
+    initSession();
+  }, [addLog]);
+
   const handleRunDB = async () => {
     if (!phoneNumber || phoneNumber.length < 5) {
       addLog('ERROR: Invalid input format.');
+      return;
+    }
+
+    if (!isSessionReady) {
+      addLog('ERROR: Secure session not initialized. Refreshing...');
+      window.location.reload();
       return;
     }
 
@@ -57,6 +82,7 @@ export default function App() {
 
     const steps = [
       { msg: 'Initializing secure connection...', delay: 300 },
+      { msg: 'Authenticating session token...', delay: 400 },
       { msg: 'Connecting to BlackSim API gateway...', delay: 500 },
       { msg: `Querying records for: ${phoneNumber}`, delay: 400 },
       { msg: 'Bypassing regional restrictions...', delay: 600 },
@@ -74,38 +100,25 @@ export default function App() {
 
     try {
       addLog('Finalizing decryption...');
-      let data;
-      try {
-        const response = await fetch(`https://blacksimdetail.vercel.app/public_apis/simdetailsapi.php?number=${phoneNumber}`);
-        data = await response.json();
-      } catch (e) {
-        addLog('PRIMARY NODE OFFLINE. Attempting fallback...');
-        data = { status: 'error' };
-      }
-
-      // Fallback if first API fails, returns error, or returns no data
-      if (data.status !== 'success' || !data.data || data.data.length === 0) {
-        addLog('SWITCHING TO SECONDARY NODE...');
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        try {
-          const response = await fetch(`https://sim-api.fakcloud.tech/api.php?number=${phoneNumber}`);
-          data = await response.json();
-        } catch (e) {
-          addLog('SECONDARY NODE UNREACHABLE.');
-          throw new Error('All nodes failed');
-        }
-      }
+      const response = await fetch(`/api/lookup?number=${phoneNumber}`);
+      const data = await response.json();
 
       setScanProgress(100);
 
+      if (response.status === 401) {
+        addLog('ERROR: Session expired or unauthorized.');
+        setIsSessionReady(false);
+        return;
+      }
+
       if (data.status === 'success' && data.data && data.data.length > 0) {
         setResults(data.data);
-        addLog(`SUCCESS: ${data.total_records || data.data.length} record(s) found.`);
+        addLog(`SUCCESS: ${data.total_records} record(s) found.`);
       } else {
-        addLog('NOTICE: No records found for this query in any node.');
+        addLog(`NOTICE: ${data.message || 'No records found for this query.'}`);
       }
     } catch (error) {
-      addLog('CRITICAL ERROR: All API nodes unreachable.');
+      addLog('CRITICAL ERROR: Secure node connection failed.');
       console.error(error);
     } finally {
       setIsScanning(false);
@@ -348,5 +361,13 @@ export default function App() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function App() {
+  return (
+    <ErrorBoundary>
+      <AppContent />
+    </ErrorBoundary>
   );
 }

@@ -53,7 +53,7 @@ async function startServer() {
   // Global Rate Limiting (General protection)
   const globalLimiter = rateLimit({
     windowMs: 10 * 60 * 1000, // 10 minutes
-    max: 100, // Limit each IP to 100 requests per window
+    max: 200, // Increased for better dev experience
     message: { status: 'error', message: 'System busy. Please try again later.' }
   });
   app.use('/api/', globalLimiter);
@@ -74,8 +74,8 @@ async function startServer() {
 
     res.cookie('session_token', token, {
       httpOnly: true,
-      secure: true, // Always use secure in this environment as it's served over HTTPS
-      sameSite: 'lax',
+      secure: true, 
+      sameSite: 'none', // Required for cross-site iframes
       maxAge: 3600000 // 1 hour
     });
     res.json({ status: 'success' });

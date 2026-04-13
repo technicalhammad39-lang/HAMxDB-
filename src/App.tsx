@@ -54,11 +54,13 @@ function AppContent() {
         const response = await fetch('/api/session');
         if (response.ok) {
           setIsSessionReady(true);
+          addLog('SUCCESS: Secure session established.');
         } else {
-          addLog('CRITICAL: Failed to establish secure session.');
+          const errorData = await response.json().catch(() => ({}));
+          addLog(`CRITICAL: Session failed (${response.status}). ${errorData.message || ''}`);
         }
       } catch (error) {
-        addLog('CRITICAL: Security gateway unreachable.');
+        addLog('CRITICAL: Security gateway unreachable. Check connection.');
       }
     };
     initSession();
@@ -71,8 +73,7 @@ function AppContent() {
     }
 
     if (!isSessionReady) {
-      addLog('ERROR: Secure session not initialized. Refreshing...');
-      window.location.reload();
+      addLog('ERROR: Secure session not active. Please wait or refresh manually.');
       return;
     }
 

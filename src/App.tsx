@@ -37,7 +37,6 @@ function AppContent() {
   const [results, setResults] = useState<ResultData[]>([]);
   const [scanProgress, setScanProgress] = useState(0);
   const [showWelcome, setShowWelcome] = useState(true);
-  const [isSessionReady, setIsSessionReady] = useState(false);
 
   const color = theme === 'green' ? '#00ff41' : '#00f3ff';
   const glowClass = theme === 'green' ? 'glow-green' : 'glow-blue';
@@ -47,33 +46,9 @@ function AppContent() {
     setLogs(prev => [...prev, msg]);
   }, []);
 
-  // Initialize session on mount
-  useEffect(() => {
-    const initSession = async () => {
-      try {
-        const response = await fetch('/api/session');
-        if (response.ok) {
-          setIsSessionReady(true);
-          addLog('SUCCESS: Secure session established.');
-        } else {
-          const errorData = await response.json().catch(() => ({}));
-          addLog(`CRITICAL: Session failed (${response.status}). ${errorData.message || ''}`);
-        }
-      } catch (error) {
-        addLog('CRITICAL: Security gateway unreachable. Check connection.');
-      }
-    };
-    initSession();
-  }, [addLog]);
-
   const handleRunDB = async () => {
     if (!phoneNumber || phoneNumber.length < 5) {
       addLog('ERROR: Invalid input format.');
-      return;
-    }
-
-    if (!isSessionReady) {
-      addLog('ERROR: Secure session not active. Please wait or refresh manually.');
       return;
     }
 
@@ -84,7 +59,6 @@ function AppContent() {
 
     const steps = [
       { msg: 'Initializing secure connection...', delay: 300 },
-      { msg: 'Authenticating session token...', delay: 400 },
       { msg: 'Connecting to BlackSim API gateway...', delay: 500 },
       { msg: `Querying records for: ${phoneNumber}`, delay: 400 },
       { msg: 'Bypassing regional restrictions...', delay: 600 },
@@ -106,12 +80,6 @@ function AppContent() {
       const data = await response.json();
 
       setScanProgress(100);
-
-      if (response.status === 401) {
-        addLog('ERROR: Session expired or unauthorized.');
-        setIsSessionReady(false);
-        return;
-      }
 
       if (data.status === 'success' && data.data && data.data.length > 0) {
         setResults(data.data);

@@ -4,16 +4,11 @@ import path from 'path';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import cors from 'cors';
-import cookieParser from 'cookie-parser';
-import jwt from 'jsonwebtoken';
 import hpp from 'hpp';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-
-// Use a secret from environment or a fallback for development
-const SESSION_SECRET = process.env.SESSION_SECRET || 'dev-secret-key-change-in-production';
 
 async function startServer() {
   const app = express();
@@ -45,7 +40,6 @@ async function startServer() {
 
   // Limit payload size to prevent DoS
   app.use(express.json({ limit: '1kb' }));
-  app.use(cookieParser());
   
   // Protect against HTTP Parameter Pollution
   app.use(hpp());
@@ -65,39 +59,11 @@ async function startServer() {
     message: { status: 'error', message: 'Security Alert: Excessive lookup attempts detected. Access restricted for 15 minutes.' }
   });
 
-  // Session Initialization Endpoint
-  app.get('/api/session', (req, res) => {
-    const token = jwt.sign({ 
-      timestamp: Date.now(),
-      ip: req.ip 
-    }, SESSION_SECRET, { expiresIn: '1h' });
-
-    res.cookie('session_token', token, {
-      httpOnly: true,
-      secure: true, 
-      sameSite: 'none', // Required for cross-site iframes
-      maxAge: 3600000 // 1 hour
-    });
-    res.json({ status: 'success' });
-  });
-
   // API Routes
   app.get('/api/lookup', lookupLimiter, async (req, res) => {
     const { number } = req.query;
-    const token = req.cookies.session_token;
 
-    // 1. Validate Session Token
-    if (!token) {
-      return res.status(401).json({ status: 'error', message: 'Unauthorized: Secure session required.' });
-    }
-
-    try {
-      jwt.verify(token, SESSION_SECRET);
-    } catch (err) {
-      return res.status(401).json({ status: 'error', message: 'Unauthorized: Session expired or invalid.' });
-    }
-
-    // 2. Strict Input Validation
+    // 1. Strict Input Validation
     if (!number || typeof number !== 'string' || number.length < 5 || number.length > 15) {
       return res.status(400).json({ status: 'error', message: 'Invalid query format.' });
     }

@@ -58,37 +58,31 @@ function AppContent() {
     setLogs([]);
 
     const steps = [
-      { msg: 'Initializing secure connection...', delay: 300 },
-      { msg: 'Connecting to BlackSim API gateway...', delay: 500 },
-      { msg: `Querying records for: ${phoneNumber}`, delay: 400 },
-      { msg: 'Bypassing regional restrictions...', delay: 600 },
-      { msg: 'Fetching encrypted data packets...', delay: 700 },
-      { msg: 'Reassembling data stream...', delay: 400 },
+      { msg: 'Connecting to database...', delay: 300 },
+      { msg: `Searching for: ${phoneNumber}`, delay: 400 },
+      { msg: 'Fetching records...', delay: 500 },
     ];
 
     let currentProgress = 0;
     for (const step of steps) {
       addLog(step.msg);
       await new Promise(resolve => setTimeout(resolve, step.delay));
-      currentProgress += 70 / steps.length;
+      currentProgress += 100 / steps.length;
       setScanProgress(currentProgress);
     }
 
     try {
-      addLog('Finalizing decryption...');
       const response = await fetch(`/api/lookup?number=${phoneNumber}`);
       const data = await response.json();
 
-      setScanProgress(100);
-
       if (data.status === 'success' && data.data && data.data.length > 0) {
         setResults(data.data);
-        addLog(`SUCCESS: ${data.total_records} record(s) found.`);
+        addLog(`SUCCESS: Found ${data.data.length} record(s).`);
       } else {
-        addLog(`NOTICE: ${data.message || 'No records found for this query.'}`);
+        addLog(`NOTICE: ${data.message || 'No records found.'}`);
       }
     } catch (error) {
-      addLog('CRITICAL ERROR: Secure node connection failed.');
+      addLog('ERROR: Connection failed.');
       console.error(error);
     } finally {
       setIsScanning(false);

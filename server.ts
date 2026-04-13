@@ -2,7 +2,6 @@ import express from 'express';
 import { createServer as createViteServer } from 'vite';
 import path from 'path';
 import helmet from 'helmet';
-import rateLimit from 'express-rate-limit';
 import cors from 'cors';
 import hpp from 'hpp';
 import { fileURLToPath } from 'url';
@@ -44,141 +43,46 @@ async function startServer() {
   // Protect against HTTP Parameter Pollution
   app.use(hpp());
 
-  // Global Rate Limiting (General protection)
-  const globalLimiter = rateLimit({
-    windowMs: 10 * 60 * 1000, // 10 minutes
-    max: 200, // Increased for better dev experience
-    message: { status: 'error', message: 'System busy. Please try again later.' }
-  });
-  app.use('/api/', globalLimiter);
-
-  // Stricter Rate Limiting for Data Lookups
-  const lookupLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 30, // Limit each IP to 30 lookups per 15 mins
-    message: { status: 'error', message: 'Security Alert: Excessive lookup attempts detected. Access restricted for 15 minutes.' }
-  });
-
   // API Routes
-  app.get('/api/lookup', lookupLimiter, async (req, res) => {
+  app.get('/api/lookup', async (req, res) => {
     const { number } = req.query;
 
-    // 1. Strict Input Validation
-    if (!number || typeof number !== 'string' || number.length < 5 || number.length > 15) {
-      return res.status(400).json({ status: 'error', message: 'Invalid query format.' });
+    if (!number || typeof number !== 'string') {
+      return res.status(400).json({ status: 'error', message: 'Number is required' });
     }
 
-    // Sanitize input: only allow digits
     const sanitizedNumber = number.replace(/\D/g, '');
-    
-    if (sanitizedNumber.length < 5) {
-       return res.status(400).json({ status: 'error', message: 'Query rejected: Insufficient data.' });
-    }
-
-    // Security Audit Log (Masked)
-    const maskedNumber = sanitizedNumber.length > 4 
-      ? sanitizedNumber.substring(0, 4) + '****' + sanitizedNumber.substring(sanitizedNumber.length - 2)
-      : '****';
-    console.log(`[AUDIT] Lookup Request | IP: ${req.ip} | Target: ${maskedNumber} | Time: ${new Date().toISOString()}`);
-
-    // Basic Anti-Bot Check
-    const userAgent = req.headers['user-agent'] || '';
-    if (userAgent.includes('curl') || userAgent.includes('Postman') || userAgent.includes('python-requests')) {
-      console.warn(`[SECURITY] Bot detected from IP: ${req.ip} | UA: ${userAgent}`);
-      return res.status(403).json({ status: 'error', message: 'Access Denied: Automated tools not allowed.' });
-    }
-
-    // 3. Secure Data Fetching with Timeouts and Headers
-    const fetchWithTimeout = async (url: string, timeout = 15000) => {
-      const controller = new AbortController();
-      const id = setTimeout(() => controller.abort(), timeout);
-      try {
-        console.log(`[FETCH] Requesting: ${url.split('?')[0]}...`);
-        const response = await fetch(url, { 
-          signal: controller.signal,
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-            'Accept': 'application/json, text/plain, */*',
-            'Accept-Language': 'en-US,en;q=0.9',
-            'Cache-Control': 'no-cache',
-            'Pragma': 'no-cache'
-          }
-        });
-        clearTimeout(id);
-        return response;
-      } catch (e) {
-        clearTimeout(id);
-        console.error(`[FETCH ERROR] ${url.split('?')[0]}:`, e instanceof Error ? e.message : e);
-        throw e;
-      }
-    };
+    console.log(`[LOOKUP] Number: ${sanitizedNumber}`);
 
     try {
       let data: any = { status: 'error' };
       
       // Primary Node
       try {
-        const response = await fetchWithTimeout(`https://blacksimdetail.vercel.app/public_apis/simdetailsapi.php?number=${sanitizedNumber}`);
-        if (response.ok) {
-          const text = await response.text();
-          try {
-            data = JSON.parse(text);
-            console.log(`[NODE 1] Status: ${response.status} | Success: ${data.status === 'success'}`);
-          } catch (parseError) {
-            console.error('[NODE 1] JSON Parse Error');
-            data = { status: 'error' };
-          }
-        } else {
-          console.warn(`[NODE 1] Failed with status: ${response.status}`);
-          data = { status: 'error' };
-        }
+        const response = await fetch(`https://blacksimdetail.vercel.app/public_apis/simdetailsapi.php?number=${sanitizedNumber}`);
+        data = await response.json();
       } catch (e) {
-        data = { status: 'error' };
+        console.error('Primary node failed');
       }
 
       // Fallback Node
       if (data.status !== 'success' || !data.data || (Array.isArray(data.data) && data.data.length === 0)) {
-        console.log('[NODE 2] Attempting fallback...');
         try {
-          const response = await fetchWithTimeout(`https://sim-api.fakcloud.tech/api.php?number=${sanitizedNumber}`);
-          if (response.ok) {
-            const text = await response.text();
-            try {
-              data = JSON.parse(text);
-              console.log(`[NODE 2] Status: ${response.status} | Success: ${data.status === 'success'}`);
-            } catch (parseError) {
-              console.error('[NODE 2] JSON Parse Error');
-              data = { status: 'error' };
-            }
-          } else {
-            console.warn(`[NODE 2] Failed with status: ${response.status}`);
-          }
+          const response = await fetch(`https://sim-api.fakcloud.tech/api.php?number=${sanitizedNumber}`);
+          data = await response.json();
         } catch (e) {
-          console.error('[NODE 2] Fetch Error');
+          console.error('Fallback node failed');
         }
       }
 
-      // Filter and return only necessary data
       if (data.status === 'success' && data.data) {
-        const filteredData = data.data.map((item: any) => ({
-          Name: item.Name || 'N/A',
-          Mobile: item.Mobile || 'N/A',
-          Country: item.Country || 'Pakistan',
-          CNIC: item.CNIC || 'N/A',
-          Address: item.Address || 'N/A'
-        }));
-
-        return res.json({
-          status: 'success',
-          data: filteredData,
-          total_records: filteredData.length
-        });
+        return res.json(data);
       }
 
-      return res.json({ status: 'error', message: 'No records found in global database.' });
+      return res.json({ status: 'error', message: 'No records found' });
 
     } catch (error) {
-      res.status(500).json({ status: 'error', message: 'Internal Security Error.' });
+      res.status(500).json({ status: 'error', message: 'Server error' });
     }
   });
 

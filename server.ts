@@ -52,38 +52,35 @@ async function startServer() {
     }
 
     const sanitizedNumber = number.replace(/\D/g, '');
-    console.log(`[LOOKUP] Number: ${sanitizedNumber}`);
+    console.log(`[DUMMY LOOKUP] Number: ${sanitizedNumber}`);
 
-    try {
-      let data: any = { status: 'error' };
-      
-      // Primary Node
-      try {
-        const response = await fetch(`https://blacksimdetail.vercel.app/public_apis/simdetailsapi.php?number=${sanitizedNumber}`);
-        data = await response.json();
-      } catch (e) {
-        console.error('Primary node failed');
+    // Simulate network delay
+    await new Promise(resolve => setTimeout(resolve, 1500));
+
+    // Generate dummy data based on the number
+    const dummyData = [
+      {
+        Name: "DEMO USER - " + sanitizedNumber.substring(0, 4),
+        Mobile: sanitizedNumber,
+        Country: "Pakistan",
+        CNIC: "42101-XXXXXXX-" + sanitizedNumber.substring(sanitizedNumber.length - 1),
+        Address: "Sector 11-G, North Karachi, Karachi, Pakistan"
+      },
+      {
+        Name: "SIM OWNER - " + sanitizedNumber.substring(sanitizedNumber.length - 4),
+        Mobile: sanitizedNumber,
+        Country: "Pakistan",
+        CNIC: "35202-XXXXXXX-" + sanitizedNumber.substring(0, 1),
+        Address: "Street 5, Model Town, Lahore, Punjab"
       }
+    ];
 
-      // Fallback Node
-      if (data.status !== 'success' || !data.data || (Array.isArray(data.data) && data.data.length === 0)) {
-        try {
-          const response = await fetch(`https://sim-api.fakcloud.tech/api.php?number=${sanitizedNumber}`);
-          data = await response.json();
-        } catch (e) {
-          console.error('Fallback node failed');
-        }
-      }
-
-      if (data.status === 'success' && data.data) {
-        return res.json(data);
-      }
-
-      return res.json({ status: 'error', message: 'No records found' });
-
-    } catch (error) {
-      res.status(500).json({ status: 'error', message: 'Server error' });
-    }
+    return res.json({
+      status: 'success',
+      data: dummyData,
+      total_records: dummyData.length,
+      note: "This is simulated demonstration data."
+    });
   });
 
   // Vite middleware for development

@@ -58,9 +58,9 @@ function AppContent() {
     setLogs([]);
 
     const steps = [
-      { msg: 'Connecting to database...', delay: 300 },
-      { msg: `Searching for: ${phoneNumber}`, delay: 400 },
-      { msg: 'Fetching records...', delay: 500 },
+      { msg: 'Initializing simulator...', delay: 300 },
+      { msg: `Generating dummy data for: ${phoneNumber}`, delay: 400 },
+      { msg: 'Finalizing demo records...', delay: 500 },
     ];
 
     let currentProgress = 0;
@@ -115,9 +115,9 @@ function AppContent() {
                 <X size={20} />
               </button>
 
-              <h2 className={`text-3xl font-bold mb-4 ${glowClass}`} style={{ color }}>WELCOME TO HAMxDB</h2>
+              <h2 className={`text-3xl font-bold mb-4 ${glowClass}`} style={{ color }}>HAMxDB SIMULATOR</h2>
               <p className="text-white/60 mb-8 font-mono text-sm uppercase tracking-wider">
-                Join our official communities to stay updated with the latest cyber tools and database leaks.
+                This is a demonstration environment. All data shown is simulated for testing purposes.
               </p>
               
               <div className="flex flex-col gap-4 mb-8">
@@ -179,7 +179,7 @@ function AppContent() {
               </button>
 
               <h1 className={`text-5xl md:text-7xl font-bold tracking-tighter ${glowClass}`} style={{ color }}>
-                HAMxDB
+                HAMxDB SIM
               </h1>
 
               {/* Right Toggle */}
@@ -203,7 +203,7 @@ function AppContent() {
           
           <div className="mt-2">
             <p className="text-xs font-mono text-white/40 uppercase tracking-widest">
-              Pakistani SIM Database - Real Cyber Lookup
+              Pakistani SIM Database - Simulation Mode
             </p>
           </div>
         </header>

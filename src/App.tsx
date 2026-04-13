@@ -11,7 +11,8 @@ import {
   Unlock,
   RefreshCw,
   Info,
-  Smartphone
+  Smartphone,
+  X
 } from 'lucide-react';
 import { MatrixBackground } from './components/MatrixBackground';
 import { TerminalLogs } from './components/TerminalLogs';
@@ -141,8 +142,16 @@ function AppContent() {
             <motion.div 
               initial={{ scale: 0.9, y: 20 }}
               animate={{ scale: 1, y: 0 }}
-              className={`bg-cyber-card border border-white/10 p-8 rounded-2xl max-w-md w-full text-center shadow-2xl ${borderGlowClass}`}
+              className={`bg-cyber-card border border-white/10 p-8 rounded-2xl max-w-md w-full text-center shadow-2xl relative ${borderGlowClass}`}
             >
+              {/* Close Button */}
+              <button 
+                onClick={() => setShowWelcome(false)}
+                className="absolute top-4 right-4 text-white/20 hover:text-white transition-colors p-2"
+              >
+                <X size={20} />
+              </button>
+
               <h2 className={`text-3xl font-bold mb-4 ${glowClass}`} style={{ color }}>WELCOME TO HAMxDB</h2>
               <p className="text-white/60 mb-8 font-mono text-sm uppercase tracking-wider">
                 Join our official communities to stay updated with the latest cyber tools and database leaks.

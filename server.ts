@@ -6,6 +6,7 @@ import rateLimit from 'express-rate-limit';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import jwt from 'jsonwebtoken';
+import hpp from 'hpp';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -18,6 +19,9 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
+  // Security Hardening: Disable X-Powered-By
+  app.disable('x-powered-by');
+
   // Security Middlewares
   app.use(helmet({
     contentSecurityPolicy: {
@@ -28,27 +32,43 @@ async function startServer() {
         "script-src": ["'self'", "'unsafe-inline'", "'unsafe-eval'"], // Needed for Vite
       },
     },
-    crossOriginEmbedderPolicy: false, // Often needed for Vite/React
+    crossOriginEmbedderPolicy: false,
   }));
   
   app.use(cors({
-    origin: true, // Allow all origins for now, but in production this should be restricted
+    origin: true, 
     credentials: true
   }));
-  app.use(express.json());
-  app.use(cookieParser());
 
-  // Rate Limiting
-  const limiter = rateLimit({
+  // Limit payload size to prevent DoS
+  app.use(express.json({ limit: '1kb' }));
+  app.use(cookieParser());
+  
+  // Protect against HTTP Parameter Pollution
+  app.use(hpp());
+
+  // Global Rate Limiting (General protection)
+  const globalLimiter = rateLimit({
+    windowMs: 10 * 60 * 1000, // 10 minutes
+    max: 100, // Limit each IP to 100 requests per window
+    message: { status: 'error', message: 'System busy. Please try again later.' }
+  });
+  app.use('/api/', globalLimiter);
+
+  // Stricter Rate Limiting for Data Lookups
+  const lookupLimiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 50, // Limit each IP to 50 requests per windowMs
-    message: { status: 'error', message: 'Too many requests from this IP, please try again after 15 minutes' }
+    max: 30, // Limit each IP to 30 lookups per 15 mins
+    message: { status: 'error', message: 'Security Alert: Excessive lookup attempts detected. Access restricted for 15 minutes.' }
   });
 
   // Session Initialization Endpoint
-  // This provides a temporary token to the frontend to authorize lookups
   app.get('/api/session', (req, res) => {
-    const token = jwt.sign({ timestamp: Date.now() }, SESSION_SECRET, { expiresIn: '1h' });
+    const token = jwt.sign({ 
+      timestamp: Date.now(),
+      ip: req.ip 
+    }, SESSION_SECRET, { expiresIn: '1h' });
+
     res.cookie('session_token', token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
@@ -59,60 +79,81 @@ async function startServer() {
   });
 
   // API Routes
-  app.get('/api/lookup', limiter, async (req, res) => {
+  app.get('/api/lookup', lookupLimiter, async (req, res) => {
     const { number } = req.query;
     const token = req.cookies.session_token;
 
     // 1. Validate Session Token
     if (!token) {
-      console.warn(`Unauthorized access attempt from IP: ${req.ip}`);
-      return res.status(401).json({ status: 'error', message: 'Unauthorized: No session token found' });
+      return res.status(401).json({ status: 'error', message: 'Unauthorized: Secure session required.' });
     }
 
     try {
       jwt.verify(token, SESSION_SECRET);
     } catch (err) {
-      console.warn(`Invalid session token from IP: ${req.ip}`);
-      return res.status(401).json({ status: 'error', message: 'Unauthorized: Invalid or expired session' });
+      return res.status(401).json({ status: 'error', message: 'Unauthorized: Session expired or invalid.' });
     }
 
-    // 2. Validate Input
+    // 2. Strict Input Validation
     if (!number || typeof number !== 'string' || number.length < 5 || number.length > 15) {
-      return res.status(400).json({ status: 'error', message: 'Invalid input format. Provide a valid number (5-15 digits).' });
+      return res.status(400).json({ status: 'error', message: 'Invalid query format.' });
     }
 
     // Sanitize input: only allow digits
     const sanitizedNumber = number.replace(/\D/g, '');
     
     if (sanitizedNumber.length < 5) {
-       return res.status(400).json({ status: 'error', message: 'Invalid input format after sanitization' });
+       return res.status(400).json({ status: 'error', message: 'Query rejected: Insufficient data.' });
     }
 
-    console.log(`[LOOKUP] IP: ${req.ip} | Number: ${sanitizedNumber.substring(0, 4)}****`);
+    // Security Audit Log (Masked)
+    const maskedNumber = sanitizedNumber.length > 4 
+      ? sanitizedNumber.substring(0, 4) + '****' + sanitizedNumber.substring(sanitizedNumber.length - 2)
+      : '****';
+    console.log(`[AUDIT] Lookup Request | IP: ${req.ip} | Target: ${maskedNumber} | Time: ${new Date().toISOString()}`);
+
+    // Basic Anti-Bot Check
+    const userAgent = req.headers['user-agent'] || '';
+    if (userAgent.includes('curl') || userAgent.includes('Postman') || userAgent.includes('python-requests')) {
+      console.warn(`[SECURITY] Bot detected from IP: ${req.ip} | UA: ${userAgent}`);
+      return res.status(403).json({ status: 'error', message: 'Access Denied: Automated tools not allowed.' });
+    }
+
+    // 3. Secure Data Fetching with Timeouts
+    const fetchWithTimeout = async (url: string, timeout = 5000) => {
+      const controller = new AbortController();
+      const id = setTimeout(() => controller.abort(), timeout);
+      try {
+        const response = await fetch(url, { signal: controller.signal });
+        clearTimeout(id);
+        return response;
+      } catch (e) {
+        clearTimeout(id);
+        throw e;
+      }
+    };
 
     try {
       let data;
       // Primary Node
       try {
-        const response = await fetch(`https://blacksimdetail.vercel.app/public_apis/simdetailsapi.php?number=${sanitizedNumber}`);
+        const response = await fetchWithTimeout(`https://blacksimdetail.vercel.app/public_apis/simdetailsapi.php?number=${sanitizedNumber}`);
         data = await response.json();
       } catch (e) {
-        console.error('Primary node fetch failed:', e);
         data = { status: 'error' };
       }
 
       // Fallback Node
       if (data.status !== 'success' || !data.data || data.data.length === 0) {
         try {
-          const response = await fetch(`https://sim-api.fakcloud.tech/api.php?number=${sanitizedNumber}`);
+          const response = await fetchWithTimeout(`https://sim-api.fakcloud.tech/api.php?number=${sanitizedNumber}`);
           data = await response.json();
         } catch (e) {
-          console.error('Secondary node fetch failed:', e);
-          return res.status(502).json({ status: 'error', message: 'Data nodes unreachable. Please try again later.' });
+          return res.status(502).json({ status: 'error', message: 'Security Protocol: Data nodes unreachable.' });
         }
       }
 
-      // Filter and return only necessary data to the client
+      // Filter and return only necessary data
       if (data.status === 'success' && data.data) {
         const filteredData = data.data.map((item: any) => ({
           Name: item.Name || 'N/A',
@@ -129,11 +170,10 @@ async function startServer() {
         });
       }
 
-      return res.json({ status: 'error', message: 'No records found in the database.' });
+      return res.json({ status: 'error', message: 'No records found in global database.' });
 
     } catch (error) {
-      console.error('Internal Lookup Error:', error);
-      res.status(500).json({ status: 'error', message: 'A server-side error occurred. Please contact support.' });
+      res.status(500).json({ status: 'error', message: 'Internal Security Error.' });
     }
   });
 

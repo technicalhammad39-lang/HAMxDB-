@@ -19,6 +19,9 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
+  // Trust proxy for correct IP detection in Cloud Run/Proxy environments
+  app.set('trust proxy', true);
+
   // Security Hardening: Disable X-Powered-By
   app.disable('x-powered-by');
 
@@ -71,8 +74,8 @@ async function startServer() {
 
     res.cookie('session_token', token, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict',
+      secure: true, // Always use secure in this environment as it's served over HTTPS
+      sameSite: 'lax',
       maxAge: 3600000 // 1 hour
     });
     res.json({ status: 'success' });
@@ -119,16 +122,25 @@ async function startServer() {
       return res.status(403).json({ status: 'error', message: 'Access Denied: Automated tools not allowed.' });
     }
 
-    // 3. Secure Data Fetching with Timeouts
-    const fetchWithTimeout = async (url: string, timeout = 5000) => {
+    // 3. Secure Data Fetching with Timeouts and Headers
+    const fetchWithTimeout = async (url: string, timeout = 10000) => {
       const controller = new AbortController();
       const id = setTimeout(() => controller.abort(), timeout);
       try {
-        const response = await fetch(url, { signal: controller.signal });
+        console.log(`[FETCH] Requesting: ${url.split('?')[0]}...`);
+        const response = await fetch(url, { 
+          signal: controller.signal,
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'application/json',
+            'Referer': 'https://blacksimdetail.vercel.app/'
+          }
+        });
         clearTimeout(id);
         return response;
       } catch (e) {
         clearTimeout(id);
+        console.error(`[FETCH ERROR] ${url.split('?')[0]}:`, e instanceof Error ? e.message : e);
         throw e;
       }
     };
@@ -138,16 +150,29 @@ async function startServer() {
       // Primary Node
       try {
         const response = await fetchWithTimeout(`https://blacksimdetail.vercel.app/public_apis/simdetailsapi.php?number=${sanitizedNumber}`);
-        data = await response.json();
+        if (response.ok) {
+          data = await response.json();
+          console.log(`[NODE 1] Status: ${response.status} | Success: ${data.status === 'success'}`);
+        } else {
+          console.warn(`[NODE 1] Failed with status: ${response.status}`);
+          data = { status: 'error' };
+        }
       } catch (e) {
         data = { status: 'error' };
       }
 
       // Fallback Node
       if (data.status !== 'success' || !data.data || data.data.length === 0) {
+        console.log('[NODE 2] Attempting fallback...');
         try {
           const response = await fetchWithTimeout(`https://sim-api.fakcloud.tech/api.php?number=${sanitizedNumber}`);
-          data = await response.json();
+          if (response.ok) {
+            data = await response.json();
+            console.log(`[NODE 2] Status: ${response.status} | Success: ${data.status === 'success'}`);
+          } else {
+            console.warn(`[NODE 2] Failed with status: ${response.status}`);
+            return res.status(502).json({ status: 'error', message: 'Security Protocol: Data nodes unreachable.' });
+          }
         } catch (e) {
           return res.status(502).json({ status: 'error', message: 'Security Protocol: Data nodes unreachable.' });
         }

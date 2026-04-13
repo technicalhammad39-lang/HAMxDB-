@@ -89,7 +89,7 @@ async function startServer() {
     }
 
     // 3. Secure Data Fetching with Timeouts and Headers
-    const fetchWithTimeout = async (url: string, timeout = 10000) => {
+    const fetchWithTimeout = async (url: string, timeout = 15000) => {
       const controller = new AbortController();
       const id = setTimeout(() => controller.abort(), timeout);
       try {
@@ -97,9 +97,11 @@ async function startServer() {
         const response = await fetch(url, { 
           signal: controller.signal,
           headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'application/json',
-            'Referer': 'https://blacksimdetail.vercel.app/'
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+            'Accept': 'application/json, text/plain, */*',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Cache-Control': 'no-cache',
+            'Pragma': 'no-cache'
           }
         });
         clearTimeout(id);
@@ -112,13 +114,20 @@ async function startServer() {
     };
 
     try {
-      let data;
+      let data: any = { status: 'error' };
+      
       // Primary Node
       try {
         const response = await fetchWithTimeout(`https://blacksimdetail.vercel.app/public_apis/simdetailsapi.php?number=${sanitizedNumber}`);
         if (response.ok) {
-          data = await response.json();
-          console.log(`[NODE 1] Status: ${response.status} | Success: ${data.status === 'success'}`);
+          const text = await response.text();
+          try {
+            data = JSON.parse(text);
+            console.log(`[NODE 1] Status: ${response.status} | Success: ${data.status === 'success'}`);
+          } catch (parseError) {
+            console.error('[NODE 1] JSON Parse Error');
+            data = { status: 'error' };
+          }
         } else {
           console.warn(`[NODE 1] Failed with status: ${response.status}`);
           data = { status: 'error' };
@@ -128,19 +137,24 @@ async function startServer() {
       }
 
       // Fallback Node
-      if (data.status !== 'success' || !data.data || data.data.length === 0) {
+      if (data.status !== 'success' || !data.data || (Array.isArray(data.data) && data.data.length === 0)) {
         console.log('[NODE 2] Attempting fallback...');
         try {
           const response = await fetchWithTimeout(`https://sim-api.fakcloud.tech/api.php?number=${sanitizedNumber}`);
           if (response.ok) {
-            data = await response.json();
-            console.log(`[NODE 2] Status: ${response.status} | Success: ${data.status === 'success'}`);
+            const text = await response.text();
+            try {
+              data = JSON.parse(text);
+              console.log(`[NODE 2] Status: ${response.status} | Success: ${data.status === 'success'}`);
+            } catch (parseError) {
+              console.error('[NODE 2] JSON Parse Error');
+              data = { status: 'error' };
+            }
           } else {
             console.warn(`[NODE 2] Failed with status: ${response.status}`);
-            return res.status(502).json({ status: 'error', message: 'Security Protocol: Data nodes unreachable.' });
           }
         } catch (e) {
-          return res.status(502).json({ status: 'error', message: 'Security Protocol: Data nodes unreachable.' });
+          console.error('[NODE 2] Fetch Error');
         }
       }
 
